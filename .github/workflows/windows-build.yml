@@ -1,38 +1,52 @@
-name: Build Windows EXE
+mkdir -p .github/workflows
+
+cat > .github/workflows/windows-release.yml << 'EOF'
+name: Windows Release
 
 on:
   workflow_dispatch:
   push:
     branches:
       - main
+  release:
+    types: [published]
+
+permissions:
+  contents: write
 
 jobs:
-  build-windows:
+  build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@v2
         with:
           channel: stable
 
-      - name: Flutter Version
-        run: flutter --version
+      - run: flutter pub get
 
-      - name: Get Packages
-        run: flutter pub get
+      - run: flutter config --enable-windows-desktop
 
-      - name: Enable Windows
-        run: flutter config --enable-windows-desktop
+      - run: flutter build windows --release
 
-      - name: Build Windows
-        run: flutter build windows --release
+      - name: Create ZIP
+        shell: powershell
+        run: |
+          Compress-Archive `
+            -Path build/windows/x64/runner/Release/* `
+            -DestinationPath windows-release.zip
 
-      - name: Upload EXE
+      - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-release
-          path: build/windows/x64/runner/Release/
+          path: windows-release.zip
+
+      - name: Upload to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: windows-release.zip
+EOF
