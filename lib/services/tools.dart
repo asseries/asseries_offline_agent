@@ -37,6 +37,24 @@ ParsedAction? findNextAction(String text) {
       // Remove content block to parse other params safely
       blockForParams =
           fullBlock.replaceRange(contentStart, contentEnd + 10, '');
+    } else if (name == 'write_file') {
+      // Model forgot to wrap the file body in <content></content> and just
+      // dumped raw code after </path>. Fall back to treating everything
+      // between </path> and </action> as the file content.
+      final pathMatch =
+          RegExp(r'<path>([\s\S]*?)<\/path>', caseSensitive: false)
+              .firstMatch(fullBlock);
+      if (pathMatch != null) {
+        final actionEnd = fullBlock.length - endTag.length;
+        if (actionEnd > pathMatch.end) {
+          final raw = fullBlock.substring(pathMatch.end, actionEnd).trim();
+          if (raw.isNotEmpty) {
+            args['path'] = pathMatch.group(1)!.trim();
+            args['content'] = raw;
+            blockForParams = '';
+          }
+        }
+      }
     }
   }
 

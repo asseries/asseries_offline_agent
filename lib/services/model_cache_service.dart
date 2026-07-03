@@ -109,16 +109,59 @@ class ModelCacheService {
 
   Future<List<ModelEntry>> listModels() async {
     final file = await _registryFile();
-    if (!file.existsSync()) return [];
-    try {
-      final data = jsonDecode(await file.readAsString()) as List;
-      return data
-          .map((j) => ModelEntry.fromJson(j as Map<String, dynamic>))
-          .toList()
-        ..sort((a, b) => b.addedAt.compareTo(a.addedAt));
-    } catch (_) {
-      return [];
+    List<ModelEntry> models = [];
+    if (file.existsSync()) {
+      try {
+        final data = jsonDecode(await file.readAsString()) as List;
+        models = data
+            .map((j) => ModelEntry.fromJson(j as Map<String, dynamic>))
+            .toList();
+      } catch (_) {
+        models = [];
+      }
     }
+
+    // Cache papkaga qo'lda tashlangan (registry'da yo'q) model papkalarini
+    // avtomatik topib, ro'yxatga qo'shamiz
+    final discovered = await _discoverUnregisteredModels(models);
+    if (discovered.isNotEmpty) {
+      models = [...discovered, ...models];
+      await _save(models);
+    }
+
+    models.sort((a, b) => b.addedAt.compareTo(a.addedAt));
+    return models;
+  }
+
+  // Cache papkasidagi barcha subfolder'larni ko'rib chiqib, registry'da
+  // bo'lmagan va model fayllariga ega bo'lganlarini topadi
+  Future<List<ModelEntry>> _discoverUnregisteredModels(
+      List<ModelEntry> known) async {
+    final cacheDir = await getCacheDir();
+    final dir = Directory(cacheDir);
+    if (!dir.existsSync()) return [];
+
+    final knownNames = known.map((m) => m.name).toSet();
+    final found = <ModelEntry>[];
+
+    for (final entry in dir.listSync()) {
+      if (entry is! Directory) continue;
+      final name = p.basename(entry.path);
+      if (knownNames.contains(name)) continue;
+
+      final hasWeights = entry
+          .listSync()
+          .any((e) => e is File && e.path.endsWith('.safetensors'));
+      if (!hasWeights) continue;
+
+      found.add(ModelEntry(
+        name: name,
+        sourcePath: entry.path,
+        cachedPath: entry.path,
+        sizeBytes: await _measureSize(entry.path),
+      ));
+    }
+    return found;
   }
 
   // ─── Asosiy metod: nusxa + yordamchi fayllar ────────────────────────────
